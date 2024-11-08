@@ -3,6 +3,83 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 require("dotenv").config();
 
+// Function to get the page data (HTML) using Axios
+async function getPageData(url) {
+    try {
+        const data = await axios.get(url);
+        return data.data;
+    } catch (e) {
+        console.error('getPageData error', e.message);
+        return null;
+    }
+}
+
+// Function to parse the CAPTCHA sitekey from the page
+function parserData(html) {
+    try {
+        const $ = cheerio.load(html);
+        return $('[data-sitekey]').data('sitekey'); // Get the reCAPTCHA sitekey
+    } catch (e) {
+        console.error('parserData error', e.message);
+        return null;
+    }
+}
+
+// Function to create a CAPTCHA-solving task
+async function createCaptchaTask(url, siteKey, isInvisible) {
+    try {
+        const data = await axios.post('https://api.nextcaptcha.com/createTask', {
+            "clientKey": "next_bdab8a7051418d03061cf13cbf1ff01789", // clientKey from NextCaptcha dashboard
+            "task": {
+                type: "RecaptchaV2TaskProxyless",
+                websiteURL: url,
+                websiteKey: siteKey,
+                isInvisible: isInvisible
+            }
+        });
+        return data.data;
+    } catch (e) {
+        console.error('createCaptchaTask error', e.message);
+        return null;
+    }
+}
+
+// Function to wait and get the result of the CAPTCHA task
+async function getTaskResult(taskId, tryTimes = 60) {
+    try {
+        const data = await axios.post('https://api.nextcaptcha.com/getTaskResult', {
+            "clientKey": "next_bdab8a7051418d03061cf13cbf1ff01789", // clientKey from NextCaptcha
+            taskId
+        });
+        if (data.data.status === 'ready') {
+            return data.data;
+        } else if (data.data.status === 'processing' && tryTimes >= 0) {
+            await sleep();
+            return getTaskResult(taskId, tryTimes - 1);
+        } else {
+            if (tryTimes < 0) {
+                console.error('getTaskResult out of time');
+            } else {
+                console.error('getTaskResult errorCode', data.data.errorCode);
+                console.error('getTaskResult errorDescription', data.data.errorDescription);
+            }
+            return null;
+        }
+    } catch (e) {
+        console.error('getTaskResult error', e.message);
+        return null;
+    }
+}
+
+// Function to add a sleep delay
+async function sleep(time = 500) {
+    return new Promise((resolve) => {
+        setTimeout(() => {
+            resolve();
+        }, time);
+    });
+}
+
 const scrapeLogic = async (res) => {
   const browser = await puppeteer.launch({
     args: [
